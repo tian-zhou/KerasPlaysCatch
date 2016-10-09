@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import json
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,15 +11,16 @@ if __name__ == "__main__":
     # Make sure this grid size matches the value used fro training
     grid_size = 10
 
-    with open("model.json", "r") as jfile:
+    with open("../model/model.json", "r") as jfile:
         model = model_from_json(json.load(jfile))
-    model.load_weights("model.h5")
+    model.load_weights("../model/model.h5")
     model.compile("sgd", "mse")
 
     # Define environment, game
     env = Catch(grid_size)
     c = 0
     for e in range(10):
+        print "Testing trial %03d/%03d" % (e, 10)
         loss = 0.
         env.reset()
         game_over = False
@@ -26,7 +29,7 @@ if __name__ == "__main__":
 
         plt.imshow(input_t.reshape((grid_size,)*2),
                    interpolation='none', cmap='gray')
-        plt.savefig("%03d.png" % c)
+        plt.savefig("../output/%03d.png" % c)
         c += 1
         while not game_over:
             input_tm1 = input_t
@@ -40,5 +43,5 @@ if __name__ == "__main__":
 
             plt.imshow(input_t.reshape((grid_size,)*2),
                        interpolation='none', cmap='gray')
-            plt.savefig("%03d.png" % c)
+            plt.savefig("../output/%03d.png" % c)
             c += 1

@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import json
 import numpy as np
 from keras.models import Sequential
@@ -12,41 +14,61 @@ class Catch(object):
 
     def _update_state(self, action):
         """
-        Input: action and states
-        Ouput: new states and reward
+        Input: action and self.state
+        Ouput: new self.state
         """
         state = self.state
         if action == 0:  # left
-            action = -1
+            basket_motion = -1
         elif action == 1:  # stay
-            action = 0
-        else:
-            action = 1  # right
-        f0, f1, basket = state[0]
-        new_basket = min(max(1, basket + action), self.grid_size-1)
-        f0 += 1
-        out = np.asarray([f0, f1, new_basket])
-        out = out[np.newaxis]
+            basket_motion = 0
+        elif action == 2: # right 
+            basket_motion = 1  
 
-        assert len(out.shape) == 2
-        self.state = out
+        # get current state
+        fruit_row, fruit_col, basket = state[0]
+
+        # update basket location, check left border (min is 1, [0,1,2])
+        # and check right border (max is 9, [8,9,10])
+        new_basket = min(max(1, basket + basket_motion), self.grid_size-1)
+
+        # move to next row
+        fruit_row += 1
+
+        # form new state
+        # either we have a model of dynamics and know how the state changes
+        # based on each action input
+        # or
+        # we can observe some observations (like images) which can be used to 
+        # estimate the state
+        new_state = np.asarray([fruit_row, fruit_col, new_basket])
+        new_state = new_state[np.newaxis]
+
+        assert len(new_state.shape) == 2
+        self.state = new_state
 
     def _draw_state(self):
-        im_size = (self.grid_size,)*2
+        im_size = (self.grid_size,)*2 # init a tuple of size (grid_size, grid_size)
         state = self.state[0]
         canvas = np.zeros(im_size)
         canvas[state[0], state[1]] = 1  # draw fruit
-        canvas[-1, state[2]-1:state[2] + 2] = 1  # draw basket
+        canvas[-1, state[2]-1:state[2] + 2] = 1  # draw basket on last row
         return canvas
 
     def _get_reward(self):
+        # get current state
         fruit_row, fruit_col, basket = self.state[0]
+
+        # if fruit lands on floor
         if fruit_row == self.grid_size-1:
             if abs(fruit_col - basket) <= 1:
+                # caught it! positive rewards
                 return 1
             else:
+                # missed it! negative rewards
                 return -1
         else:
+            # fruit not landed yet, no reward
             return 0
 
     def _is_over(self):
@@ -66,8 +88,12 @@ class Catch(object):
         return self.observe(), reward, game_over
 
     def reset(self):
-        n = np.random.randint(0, self.grid_size-1, size=1)
-        m = np.random.randint(1, self.grid_size-2, size=1)
+        n = np.random.randint(0, self.grid_size-1, size=1) # 0~8
+        m = np.random.randint(1, self.grid_size-2, size=1) # 1~7
+        # state = [f0, f1, basket]
+        # f0: row of fruit (0 is top row)
+        # f1: column of fruit
+        # basket: center of the bar (3 pixels)
         self.state = np.asarray([0, n, m])[np.newaxis]
 
 
@@ -86,15 +112,16 @@ class ExperienceReplay(object):
     def get_batch(self, model, batch_size=10):
         len_memory = len(self.memory)
         num_actions = model.output_shape[-1]
-        env_dim = self.memory[0][0][0].shape[1]
-        inputs = np.zeros((min(len_memory, batch_size), env_dim))
-        targets = np.zeros((inputs.shape[0], num_actions))
+        env_dim = self.memory[0][0][0].shape[1] # input dim (1,-1)
+        batch_size = min(len_memory, batch_size) # most of time, no effect
+        inputs = np.zeros((batch_size, env_dim))
+        targets = np.zeros((batch_size, num_actions))
         for i, idx in enumerate(np.random.randint(0, len_memory,
-                                                  size=inputs.shape[0])):
+                                                  size=batch_size)):
             state_t, action_t, reward_t, state_tp1 = self.memory[idx][0]
             game_over = self.memory[idx][1]
 
-            inputs[i:i+1] = state_t
+            inputs[i, :] = state_t
             # There should be no target values for actions not taken.
             # Thou shalt not correct actions not taken #deep
             targets[i] = model.predict(state_t)[0]
@@ -111,7 +138,7 @@ if __name__ == "__main__":
     # parameters
     epsilon = .1  # exploration
     num_actions = 3  # [move_left, stay, move_right]
-    epoch = 1000
+    epoch = 100
     max_memory = 500
     hidden_size = 100
     batch_size = 50
@@ -124,7 +151,7 @@ if __name__ == "__main__":
     model.compile(sgd(lr=.2), "mse")
 
     # If you want to continue training from a previous model, just uncomment the line bellow
-    # model.load_weights("model.h5")
+    # model.load_weights("../model/model.h5")
 
     # Define environment/game
     env = Catch(grid_size)
@@ -139,32 +166,34 @@ if __name__ == "__main__":
         env.reset()
         game_over = False
         # get initial input
-        input_t = env.observe()
+        input_t1 = env.observe()
 
         while not game_over:
-            input_tm1 = input_t
+            input_t0 = input_t1
             # get next action
             if np.random.rand() <= epsilon:
                 action = np.random.randint(0, num_actions, size=1)
             else:
-                q = model.predict(input_tm1)
+                q = model.predict(input_t0)
                 action = np.argmax(q[0])
 
             # apply action, get rewards and new state
-            input_t, reward, game_over = env.act(action)
+            input_t1, reward, game_over = env.act(action)
             if reward == 1:
                 win_cnt += 1
 
             # store experience
-            exp_replay.remember([input_tm1, action, reward, input_t], game_over)
+            exp_replay.remember([input_t0, action, reward, input_t1], game_over)
 
             # adapt model
             inputs, targets = exp_replay.get_batch(model, batch_size=batch_size)
 
-            loss += model.train_on_batch(inputs, targets)[0]
-        print("Epoch {:03d}/999 | Loss {:.4f} | Win count {}".format(e, loss, win_cnt))
+            # update loss 
+            loss += model.train_on_batch(inputs, targets)
+
+        print("Epoch {:03d}/{:03d}} | Loss {:.4f} | Win count {}".format(e, epoch, loss, win_cnt))
 
     # Save trained model weights and architecture, this will be used by the visualization code
-    model.save_weights("model.h5", overwrite=True)
-    with open("model.json", "w") as outfile:
+    model.save_weights("../model/model.h5", overwrite=True)
+    with open("../model/model.json", "w") as outfile:
         json.dump(model.to_json(), outfile)
