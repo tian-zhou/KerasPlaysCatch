@@ -8,8 +8,7 @@ from keras.optimizers import sgd
 
 
 class Catch(object):
-    def __init__(self, grid_size=10):
-        self.grid_size = grid_size
+    def __init__(self):
         self.reset()
 
     def _update_state(self, action):
@@ -17,85 +16,36 @@ class Catch(object):
         Input: action and self.state
         Ouput: new self.state
         """
-        state = self.state
-        if action == 0:  # left
-            basket_motion = -1
-        elif action == 1:  # stay
-            basket_motion = 0
-        elif action == 2: # right 
-            basket_motion = 1  
-
-        # get current state
-        fruit_row, fruit_col, basket = state[0]
-
-        # update basket location, check left border (min is 1, [0,1,2])
-        # and check right border (max is 9, [8,9,10])
-        new_basket = min(max(1, basket + basket_motion), self.grid_size-1)
-
-        # move to next row
-        fruit_row += 1
-
-        # form new state
-        # either we have a model of dynamics and know how the state changes
-        # based on each action input
-        # or
-        # we can observe some observations (like images) which can be used to 
-        # estimate the state
-        new_state = np.asarray([fruit_row, fruit_col, new_basket])
-        new_state = new_state[np.newaxis]
-
-        assert len(new_state.shape) == 2
-        self.state = new_state
-
-    def _draw_state(self):
-        im_size = (self.grid_size,)*2 # init a tuple of size (grid_size, grid_size)
-        state = self.state[0]
-        canvas = np.zeros(im_size)
-        canvas[state[0], state[1]] = 1  # draw fruit
-        canvas[-1, state[2]-1:state[2] + 2] = 1  # draw basket on last row
-        return canvas
-
-    def _get_reward(self):
-        # get current state
-        fruit_row, fruit_col, basket = self.state[0]
-
-        # if fruit lands on floor
-        if fruit_row == self.grid_size-1:
-            if abs(fruit_col - basket) <= 1:
-                # caught it! positive rewards
-                return 1
-            else:
-                # missed it! negative rewards
-                return -1
-        else:
-            # fruit not landed yet, no reward
-            return 0
+        
+        # based on the action, command Baxter to move
+        # call observe and get a new image
+        # set self.state equals to the new state
+        pass
 
     def _is_over(self):
-        if self.state[0, 0] == self.grid_size-1:
+        # decide if action is over or not
+        if 1:
             return True
         else:
             return False
 
     def observe(self):
-        canvas = self._draw_state()
-        return canvas.reshape((1, -1))
+        # 1) get an image
+        # 2) do necessary preprocessing like resizing etc
+        # 3) make it a vector, and return canvas.reshape((1, -1))
+        pass
 
     def act(self, action):
         self._update_state(action)
-        reward = self._get_reward()
+        reward = 0 # get reward
         game_over = self._is_over()
         return self.observe(), reward, game_over
 
     def reset(self):
-        n = np.random.randint(0, self.grid_size-1, size=1) # 0~8
-        m = np.random.randint(1, self.grid_size-2, size=1) # 1~7
-        # state = [f0, f1, basket]
-        # f0: row of fruit (0 is top row)
-        # f1: column of fruit
-        # basket: center of the bar (3 pixels)
-        self.state = np.asarray([0, n, m])[np.newaxis]
-
+        # 1) move robot into initial position
+        # 2) spawn object
+        # 3) get an image, and give it to self.state
+        pass
 
 class ExperienceReplay(object):
     def __init__(self, max_memory=100, discount=.9):
@@ -137,15 +87,16 @@ class ExperienceReplay(object):
 if __name__ == "__main__":
     # parameters
     epsilon = .1  # exploration
-    num_actions = 3  # [move_left, stay, move_right]
+    num_actions = 3*7  # [up, hold, down] x 7 joints
     epoch = 100
     max_memory = 500
     hidden_size = 100
     batch_size = 50
-    grid_size = 10
-
+    img_h = 100
+    img_w = 100
+    
     model = Sequential()
-    model.add(Dense(hidden_size, input_shape=(grid_size**2,), activation='relu'))
+    model.add(Dense(hidden_size, input_shape=(img_h * img_w), activation='relu'))
     model.add(Dense(hidden_size, activation='relu'))
     model.add(Dense(num_actions))
     model.compile(sgd(lr=.2), "mse")
@@ -154,7 +105,7 @@ if __name__ == "__main__":
     # model.load_weights("../model/model.h5")
 
     # Define environment/game
-    env = Catch(grid_size)
+    env = Catch()
 
     # Initialize experience replay object
     exp_replay = ExperienceReplay(max_memory=max_memory)
